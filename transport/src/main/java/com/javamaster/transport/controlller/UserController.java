@@ -1,26 +1,83 @@
 package com.javamaster.transport.controlller;
 
+import com.javamaster.transport.authentication.JwtUtils;
+import com.javamaster.transport.dao.UserRepository;
+import com.javamaster.transport.dto.ResponseDto;
 import com.javamaster.transport.model.User;
-import com.javamaster.transport.service.IUserService;
+import com.javamaster.transport.service.UserDetailsImpl;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
+
+//@CrossOrigin(origins = "*", maxAge = 3600)
 @RestController
+@RequestMapping("/api/auth")
 public class UserController {
 
     @Autowired
-    private IUserService userService;
+    AuthenticationManager authenticationManager;
 
+    @Autowired
+    UserRepository userRepository;
 
-    public UserController(IUserService userService) {
-        this.userService = userService;
+    @Autowired
+    PasswordEncoder encoder;
+
+    @Autowired
+    JwtUtils jwtUtils;
+
+    @PostMapping("/signin")
+    public ResponseEntity<?> authenticateUser(@Valid @RequestBody User loginRequest) {
+
+        try {
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
+
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+            HashMap<String, Object> response = new HashMap<>();
+
+            String jwt = jwtUtils.generateJwtToken(authentication);
+            UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+            response.put("token", jwt);
+            response.put("username", userDetails.getUsername());
+            response.put("role", userDetails.getAuthorities().toString());
+            return new ResponseEntity<>(ResponseDto.builder().message("User logged in successfully").data(response).build(), HttpStatus.OK);
+
+        } catch (Exception e) {
+            return new ResponseEntity<>(ResponseDto.builder().message("Invalid username or password").build(), HttpStatus.BAD_REQUEST);
+
+        }
     }
 
+    @PostMapping("/signup")
+    public ResponseEntity<?> registerUser(@Valid @RequestBody User signUpRequest) {
 
-    @PostMapping("/register")
-    public  User save(@RequestBody  User user){
-        return userService.save(user);
+        try{
+            if (userRepository.existsByUsername(signUpRequest.getUsername())) {
+                return ResponseEntity
+                        .badRequest()
+                        .body("Error: Username is already taken!");
+            }
+            // Create new user's account
+            User user = new User(signUpRequest.getUsername(), encoder.encode(signUpRequest.getPassword()),signUpRequest.getRole().toString());
+
+            userRepository.save(user);
+
+            return  new ResponseEntity<>(ResponseDto.builder().message("User registered successfully").build(), HttpStatus.OK);
+
+        }
+        catch (Exception e){
+            return new ResponseEntity<>(ResponseDto.builder().message("Invalid username or password").build(), HttpStatus.BAD_REQUEST);
+        }
+
     }
 }
